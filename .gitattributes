@@ -1,0 +1,6 @@
+*.c linguist-language=c
+*.cc linguist-language=c++
+*.cpp linguist-language=c++
+*.py linguist-language=python
+*.java linguist-language=java
+*.php linguist-language=php

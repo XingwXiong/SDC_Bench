@@ -1,0 +1,206 @@
+title: PING_INLINE
+cmd: PING
+
+----------------
+title: PING_BULK
+cmd: *1
+$4
+PING
+
+----------------
+title: SET
+cmd: *3
+$3
+SET
+$16
+key:__rand_int__
+$3
+xxx
+
+----------------
+title: GET
+cmd: *2
+$3
+GET
+$16
+key:__rand_int__
+
+----------------
+title: INCR
+cmd: *2
+$4
+INCR
+$20
+counter:__rand_int__
+
+----------------
+title: LPUSH
+cmd: *3
+$5
+LPUSH
+$6
+mylist
+$3
+xxx
+
+----------------
+title: RPUSH
+cmd: *3
+$5
+RPUSH
+$6
+mylist
+$3
+xxx
+
+----------------
+title: LPOP
+cmd: *2
+$4
+LPOP
+$6
+mylist
+
+----------------
+title: RPOP
+cmd: *2
+$4
+RPOP
+$6
+mylist
+
+----------------
+title: SADD
+cmd: *3
+$4
+SADD
+$5
+myset
+$20
+element:__rand_int__
+
+----------------
+title: HSET
+cmd: *4
+$4
+HSET
+$18
+myset:__rand_int__
+$20
+element:__rand_int__
+$3
+xxx
+
+----------------
+title: SPOP
+cmd: *2
+$4
+SPOP
+$5
+myset
+
+----------------
+title: LPUSH (needed to benchmark LRANGE)
+cmd: *3
+$5
+LPUSH
+$6
+mylist
+$3
+xxx
+
+----------------
+title: LRANGE_100 (first 100 elements)
+cmd: *4
+$6
+LRANGE
+$6
+mylist
+$1
+0
+$2
+99
+
+----------------
+title: LRANGE_300 (first 300 elements)
+cmd: *4
+$6
+LRANGE
+$6
+mylist
+$1
+0
+$3
+299
+
+----------------
+title: LRANGE_500 (first 450 elements)
+cmd: *4
+$6
+LRANGE
+$6
+mylist
+$1
+0
+$3
+449
+
+----------------
+title: LRANGE_600 (first 600 elements)
+cmd: *4
+$6
+LRANGE
+$6
+mylist
+$1
+0
+$3
+599
+
+----------------
+title: MSET (10 keys)
+cmd: *21
+$4
+MSET
+$16
+key:__rand_int__
+$3
+xxx
+$16
+key:__rand_int__
+$3
+xxx
+$16
+key:__rand_int__
+$3
+xxx
+$16
+key:__rand_int__
+$3
+xxx
+$16
+key:__rand_int__
+$3
+xxx
+$16
+key:__rand_int__
+$3
+xxx
+$16
+key:__rand_int__
+$3
+xxx
+$16
+key:__rand_int__
+$3
+xxx
+$16
+key:__rand_int__
+$3
+xxx
+$16
+key:__rand_int__
+$3
+xxx
+
+----------------
