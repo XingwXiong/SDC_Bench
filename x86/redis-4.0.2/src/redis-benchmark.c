@@ -79,6 +79,7 @@ static struct config {
     sds dbnumstr;
     char *tests;
     char *auth;
+    FILE* fd;
 } config;
 
 typedef struct _client {
@@ -244,8 +245,10 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     continue;
                 }
 
-                if (config.requests_finished < config.requests)
+                if (config.requests_finished < config.requests){
                     config.latency[config.requests_finished++] = c->latency;
+                    fprintf(config.fd, "%lld\n", c->latency);
+                }
                 c->pending--;
                 if (c->pending == 0) {
                     clientDone(c);
@@ -487,13 +490,15 @@ static void showLatencyReport(void) {
 }
 
 static void benchmark(char *title, char *cmd, int len) {
+    static char file_name[100];
     client c;
     ////////////////////////xingw
     fprintf(fp_cmd, "title: %s\n", title);
     fprintf(fp_cmd, "cmd: %s\n", cmd);
     fprintf(fp_cmd, "----------------\n");
     ////////////////////////xingw
-
+    sprintf(file_name, "%s.log", title);
+    config.fd = fopen(file_name, "w+");
     config.title = title;
     config.requests_issued = 0;
     config.requests_finished = 0;
@@ -504,7 +509,10 @@ static void benchmark(char *title, char *cmd, int len) {
     config.start = mstime();
     aeMain(config.el);
     config.totlatency = mstime()-config.start;
-
+    
+    fclose(config.fd);
+    config.fd = NULL;
+    printf("FILE_PATH: %s\n", file_name);
     showLatencyReport();
     freeAllClients();
 }
