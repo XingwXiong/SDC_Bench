@@ -1,0 +1,18 @@
+title: SET
+cmd: *3
+$3
+SET
+$16
+key:__rand_int__
+$3
+xxx
+
+----------------
+title: GET
+cmd: *2
+$3
+GET
+$16
+key:__rand_int__
+
+----------------
