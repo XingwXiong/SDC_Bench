@@ -50,8 +50,7 @@ static long long mstime(void) {
 }
 
 acl::string gen_key() {
-    //const int size = 3;
-    const int size = 2;
+    const int size = 3;
     acl::string ret = "__test_key__";
     for(int i = 0; i < size; ++i) {
         ret += (char)(rand() % 10 + '0');
@@ -60,7 +59,7 @@ acl::string gen_key() {
 }
 
 acl::string gen_val() {
-    const int size = 8;
+    const int size = 20;
     acl::string ret = "__test_val__";
     for(int i = 0; i < size; ++i) {
         ret += (char)(rand() % 10 + '0');
@@ -71,7 +70,6 @@ acl::string gen_val() {
 static bool test_set(acl::redis_string &cmd) {
     acl::string key = gen_key();
     acl::string val = gen_val();
-    //printf("%s: %s\n", key.c_str(), val.c_str());
     assert(cmd.set(key, val) == true);
     key.clear();
     val.clear();
@@ -99,10 +97,10 @@ static void *processRequests(void *e) {
     }
     pthread_mutex_lock(&config.lats_mutex);
     while(config.requests_finished < config.requests) {
-        long long lat_bg = ustime();
+        long long lat_bg = mstime();
         func(cmd_string);
         ++ config.requests_finished;
-        config.lats.push_back(ustime() - lat_bg);
+        config.lats.push_back(mstime() - lat_bg);
     }
     pthread_mutex_unlock(&config.lats_mutex);
 }
@@ -123,7 +121,7 @@ void show_report() {
         mean_lat += lat;
     }
     mean_lat = config.requests_finished ? mean_lat / config.requests_finished : 0;
-    long double qps = config.total_tm ? (long double)config.requests_finished / (config.total_tm / 1000000.0) : 0;
+    long double qps = config.total_tm ? (long double)config.requests_finished / (config.total_tm / 1000.0) : 0;
     fprintf(qps_fd, "%.2Lf\n", qps);
     fclose(lat_fd);
     fclose(qps_fd);
@@ -134,7 +132,7 @@ void show_report() {
     for(int i = 0; i < pers_size; ++ i) {
         printf("%7.2f%%", pers[i]);
     }
-    printf(" (unit: us)\n");
+    printf(" (unit: ms)\n");
     printf("%8.2Lf%8.2Lf", qps, mean_lat);
     for (int i = 0; i < pers_size; ++ i) {
         int pos = pers[i] / 100 * max(0, config.requests_finished - 1);
@@ -155,13 +153,13 @@ void benchmark(const string &type) {
         pthread_create(&config.clients[i], NULL, processRequests, NULL);
     }
 
-    config.start_tm = ustime();
+    config.start_tm = mstime();
 
     for(int i = 0; i < config.client_num; ++i) {
         pthread_join(config.clients[i], NULL);
     }
 
-    config.total_tm = ustime() - config.start_tm;
+    config.total_tm = mstime() - config.start_tm;
 
     pthread_mutex_destroy(&config.lats_mutex);
     show_report();
