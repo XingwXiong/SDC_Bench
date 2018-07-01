@@ -7,7 +7,11 @@ using namespace std;
 
 struct Config {
     int client_num;
-    vector<pthread_t> clients;
+    vector<pthread_t> clients_pd;
+    pthread_t display_pd;
+    long long display_las_time;
+    long long display_las_index;
+
     vector<pair<string, int>> urls;
     string ip_addr;
     int port;
@@ -19,6 +23,7 @@ struct Config {
     string type;
     long long start_tm;
     long long total_tm;
+    long long interval;
     vector<long long> lats;
 
     pthread_mutex_t lats_mutex;
@@ -87,7 +92,7 @@ static bool test_get(acl::redis_string &cmd) {
     return true;
 }
 
-static void *processRequests(void *e) {
+static void* processRequests(void *e) {
     bool (* func)(acl::redis_string & cmd) = NULL;
     if(config.type == "SET") {
         func = &test_set;
@@ -107,7 +112,42 @@ static void *processRequests(void *e) {
     pthread_mutex_unlock(&config.lats_mutex);
 }
 
-void show_report() {
+static void* show_report(void *) {
+    static double pers[] = {0, 50, 80, 95, 99, 99.9, 100};
+    static int pers_size = 7; //sizeof(pers) / sizeof(double);
+    while(config.display_las_index < config.requests) {
+        int requests_finished = config.requests_finished;
+        long long cur_time = ustime();
+        long long delta_tm = cur_time - config.display_las_time;
+        long long delta_sz = requests_finished - config.display_las_index;
+        if(delta_tm < (long long)config.interval * 1000000) continue;
+        vector<long long> lat_buf;
+        long double mean_lat = 0;
+        for(int i = config.display_las_index; i < requests_finished; ++i) {
+            lat_buf.push_back(config.lats[i]);
+            mean_lat += config.lats[i];
+        }
+        mean_lat = requests_finished ? mean_lat / requests_finished : 0;
+        long double qps = delta_tm ? (long double) delta_sz / (delta_tm / 1000000.0) : 0;
+        sort(lat_buf.begin(), lat_buf.end());
+        printf("==============%s==============\n", config.type.c_str());
+        printf("%8s%8s", "QPS", "MEAN");
+        for(int i = 0; i < pers_size; ++ i) {
+            printf("%7.2f%%", pers[i]);
+        }
+        printf(" (unit: us)\n");
+        printf("%8.2Lf%8.2Lf", qps, mean_lat);
+        for (int i = 0; i < pers_size; ++ i) {
+            int pos = pers[i] / 100 * max(0ll, delta_sz - 1);
+            printf("%8lld", lat_buf[pos]);
+        }
+        printf("\n");
+	config.display_las_time = ustime();
+	config.display_las_index = requests_finished + 1;
+    }
+}
+
+void show_total_report() {
     printf("==============%s==============\n", config.type.c_str());
     char file_name[50];
     sprintf(file_name, "%s.lat", config.type.c_str());
@@ -149,24 +189,24 @@ void benchmark(const string &type) {
     config.requests_finished = 0;
     config.lats.clear();
     pthread_mutex_init(&config.lats_mutex, NULL);
-    config.clients.clear();
-    config.clients.resize(config.client_num);
+    config.clients_pd.clear();
+    config.clients_pd.resize(config.client_num);
     for(int i = 0; i < config.client_num; ++i) {
-        pthread_create(&config.clients[i], NULL, processRequests, NULL);
+        pthread_create(&config.clients_pd[i], NULL, processRequests, NULL);
     }
-
-    config.start_tm = ustime();
+    pthread_create(&config.display_pd, NULL, show_report, NULL);
+    config.display_las_time = config.start_tm = ustime();
+    config.display_las_index = 0;
 
     for(int i = 0; i < config.client_num; ++i) {
-        pthread_join(config.clients[i], NULL);
+        pthread_join(config.clients_pd[i], NULL);
     }
-
+    pthread_join(config.display_pd, NULL);
     config.total_tm = ustime() - config.start_tm;
 
     pthread_mutex_destroy(&config.lats_mutex);
-    show_report();
+    show_total_report();
 }
-
 
 bool parseOptions(int argc, const char **argv) {
     int i;
@@ -190,6 +230,9 @@ bool parseOptions(int argc, const char **argv) {
         } else if(!strcmp(argv[i], "-n")) {
             if(lastarg) goto invalid;
             config.requests = atoi(argv[++ i]);
+        } else if(!strcmp(argv[i], "--interval")) {
+            if(lastarg) goto invalid;
+            config.interval = atoi(argv[++ i]);
         } else {
             goto usage;
         }
@@ -200,9 +243,9 @@ invalid:
 
 usage:
     printf(
-        "Usage: redis-cluster-bench [-h <host>] [-p <port>] [-c <client>] [-n <requests>]  [-t <test-type>] [-a <auth>]\n\n"
+        "Usage: redis-cluster-bench [-h <host>] [-p <port>] [-c <client>] [-n <requests>]  [-t <test-type>] [-a <auth>] [--interval <interval>]\n\n"
         "Examples:\n\n"
-        "redis-cluster-bench -h 127.0.0.1 -p 7000 -n 10000000 -c 20 -t set,get\n\n");
+        "redis-cluster-bench -h 127.0.0.1 -p 7000 -n 10000000 -c 20 -t set,get --interval 1\n\n");
     return false;
 }
 
@@ -214,7 +257,7 @@ int main(int argc, const char **argv) {
     config.requests_finished = 0;
     config.task.push_back("SET");
     config.task.push_back("GET");
-
+    config.interval = 1;
     if(parseOptions(argc, argv) == false) exit(-1);
 
     // 添加一个 redis 服务结点，可以多次调用此函数添加多个服务结点，
