@@ -284,7 +284,7 @@ usage:
 }
 
 int main(int argc, const char **argv) {
-    config.max_conn = 100;
+    config.max_conn = 200;
     config.client_num = 1;
     config.ip_addr = "127.0.0.1";
     config.port = 6379;

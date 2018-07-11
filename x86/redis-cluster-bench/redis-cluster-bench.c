@@ -108,7 +108,7 @@ void *processRequests(void *e) {
         exit(-1);
     }
     acl::redis_string cmd_string;
-    cmd_string.set_cluster(&cluster, 100);
+    cmd_string.set_cluster(&cluster, 100); // max_conn = 100
     pthread_mutex_lock(&config.lats_mutex);
     while(config.requests_finished < config.requests) {
         long long lat_bg = ustime();
@@ -286,7 +286,7 @@ int main(int argc, const char **argv) {
     // 添加一个 redis 服务结点，可以多次调用此函数添加多个服务结点，
     // 因为 acl redis 模块支持 redis 服务结点的自动发现及动态添加
     // 功能，所以添加一个服务结点即可
-    int max_conns = 100;
+    int max_conns = 200;
     string redis_url = config.ip_addr + ":" + to_string(config.port);
     cluster.set(redis_url.c_str(), max_conns);
     for(auto &type : config.task) {
