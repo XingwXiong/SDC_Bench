@@ -127,7 +127,7 @@ static void* show_report(void *) {
             lat_buf.push_back(config.lats[i]);
             mean_lat += config.lats[i];
         }
-        mean_lat = requests_finished ? mean_lat / requests_finished : 0;
+        mean_lat = requests_finished ? mean_lat / delta_sz : 0;
         long double qps = delta_tm ? (long double) delta_sz / (delta_tm / 1000000.0) : 0;
         sort(lat_buf.begin(), lat_buf.end());
         printf("==============%s==============\n", config.type.c_str());
@@ -141,7 +141,21 @@ static void* show_report(void *) {
             int pos = pers[i] / 100 * max(0ll, delta_sz - 1);
             printf("%8lld", lat_buf[pos]);
         }
-        printf("\n");
+	char file_name[50];
+	sprintf(file_name,"redis_cluster_latency_%s.csv",config.type.c_str());	
+	FILE *fp = fopen(file_name,"a");
+	if(fp==NULL){
+		return 0;
+	}
+	fprintf(fp,"%8.2LF,%8Lf",qps,mean_lat);
+	for(int i = 0; i < pers_size; ++ i){
+		int pos = pers[i] / 100 * max(0ll, delta_sz -1);
+		fprintf(fp,",%8lld",lat_buf[pos]);
+	}
+	fprintf(fp,"\n");
+	fclose(fp);
+
+	printf("\n");
 	config.display_las_time = ustime();
 	config.display_las_index = requests_finished + 1;
     }
