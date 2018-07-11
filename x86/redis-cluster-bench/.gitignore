@@ -1,3 +1,4 @@
 *.lat
 *.qps
+*.csv
 redis-cluster-bench
