@@ -140,15 +140,15 @@ static void *show_report(void *) {
         long double qps = delta_tm ? (long double) delta_sz / (delta_tm / 1000000.0) : 0;
         sort(lat_buf.begin(), lat_buf.end());
         printf("==============%s==============\n", config.type.c_str());
-        printf("%8s%8s", "QPS", "MEAN");
+        printf("%8s|%8s", "QPS", "MEAN");
         for(int i = 0; i < pers_size; ++ i) {
-            printf("%7.2f%%", pers[i]);
+            printf("|%7.2f%%", pers[i]);
         }
         printf(" (unit: us)\n");
-        printf("%8.2Lf%8.2Lf", qps, mean_lat);
+        printf("%8.2Lf|%8.2Lf", qps, mean_lat);
         for (int i = 0; i < pers_size; ++ i) {
             int pos = pers[i] / 100 * max(0ll, delta_sz - 1);
-            printf("%8lld", lat_buf[pos]);
+            printf("|%8lld", lat_buf[pos]);
         }
         char file_name[50];
         sprintf(file_name, "redis_cluster_latency_%s.csv", config.type.c_str());
