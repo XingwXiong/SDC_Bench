@@ -2,32 +2,35 @@
 #include <bits/stdc++.h>
 #include <acl_cpp/lib_acl.hpp>
 #include <pthread.h>
+#include "dist.h"
 
 using namespace std;
 
 struct Config {
-    int max_conn;
     int client_num;
+    vector<pthread_t> clients_pd;
     pthread_t display_pd;
     long long display_las_time;
     long long display_las_index;
 
-    vector<pair<string, int>> urls;
     string ip_addr;
     int port;
     string auth;
     int requests_finished;
     int requests;
+    int qps;
 
-    vector<string> task;
-    string type;
+    vector<string> task; //-t get,set
+    string type; // current task type
     long long start_tm;
     long long total_tm;
     long long interval;
     vector<long long> lats;
 
-    acl::thread_mutex lats_mutex;
+    pthread_mutex_t lats_mutex;
+
 } config;
+ExpDist dist; // exponential_distribution
 
 acl::redis_client_cluster cluster; // 定义 redis 客户端集群管理对象
 
@@ -41,7 +44,6 @@ static long long ustime(void) {
     return ust;
 }
 
-
 static long long mstime(void) {
     struct timeval tv;
     long long mst;
@@ -50,6 +52,32 @@ static long long mstime(void) {
     mst = ((long long)tv.tv_sec) * 1000;
     mst += tv.tv_usec / 1000;
     return mst;
+}
+
+static long long nstime() {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return ts.tv_sec * 1000 * 1000 * 1000 + ts.tv_nsec;
+}
+
+static void sleepUntilUs(long long targetUs) {
+    long long curUs = ustime();
+    while(curUs < targetUs) {
+        long long diffUs = targetUs - curUs;
+        struct timespec ts = {(time_t)diffUs / (1000 * 1000), (time_t)diffUs % (1000 * 1000) * 1000};
+        nanosleep(&ts, NULL);
+        curUs = ustime();
+    }
+}
+
+static void sleepUntilNs(long long targetNs) {
+    long long curNs = nstime();
+    while(curNs < targetNs) {
+        long long diffNs = targetNs - curNs;
+        struct timespec ts = {(time_t)diffNs / (1000 * 1000 * 1000), (time_t)diffNs % (1000 * 1000 * 1000)};
+        nanosleep(&ts, NULL);
+        curNs = nstime();
+    }
 }
 
 acl::string gen_key() {
@@ -71,17 +99,24 @@ acl::string gen_val() {
     return ret;
 }
 
-static bool test_set(acl::redis_string &cmd) {
+bool test_set(acl::redis_string &cmd) {
     acl::string key = gen_key();
     acl::string val = gen_val();
-    //printf("%s: %s\n", key.c_str(), val.c_str());
-    assert(cmd.set(key, val) == true);
+    bool ret = cmd.set(key, val);
+    if (ret == false ) {
+        const acl::redis_result *res = cmd.get_result();
+        printf("set key: error: %s\r\n",
+               res ? res->get_error() : "unknown error");
+        //    return false;
+    }
+    assert(ret == true);
     key.clear();
     val.clear();
+    cmd.clear();
     return true;
 }
 
-static bool test_get(acl::redis_string &cmd) {
+bool test_get(acl::redis_string &cmd) {
     acl::string key = gen_key();
     acl::string val = gen_val();
     assert(cmd.get(key, val) == true);
@@ -89,36 +124,34 @@ static bool test_get(acl::redis_string &cmd) {
     val.clear();
     return true;
 }
-class test_thread : public acl::thread {
-public:
-    test_thread(acl::redis_client_cluster& cluster, int max_conn, bool (* func)(acl::redis_string& cmd)) \
-    : cluster(cluster), max_conn(max_conn), func(func) {}
-    
-    ~test_thread() {}
 
-protected:
-    virtual void* run() {
-        acl::redis_string cmd;
-        cmd.set_cluster(&cluster, max_conn);
-        
-        config.lats_mutex.lock();
-        while(config.requests_finished < config.requests) {
-            config.lats_mutex.unlock();
-            long long lat_bg = ustime();
-            func(cmd);
-            config.lats_mutex.lock();
-            ++ config.requests_finished;
-            config.lats.push_back(ustime() - lat_bg);
-        }
-        config.lats_mutex.unlock();
+void *processRequests(void *e) {
+    bool (* func)(acl::redis_string & cmd) = NULL;
+    if(config.type == "SET") {
+        func = &test_set;
+    } else if(config.type == "GET") {
+        func = &test_get;
+    } else {
+        fprintf(stderr, "type error: no such type %s\n", config.type.c_str());
+        exit(-1);
     }
-private:
-    acl::redis_client_cluster& cluster;
-    int max_conn;
-    bool (* func)(acl::redis_string & cmd);
-};
+    acl::redis_string cmd_string;
+    cmd_string.set_cluster(&cluster, 100); // max_conn = 100
+    pthread_mutex_lock(&config.lats_mutex);
+    while(config.requests_finished < config.requests) {
+        long long lat_bg = dist.nextArrivalNs();
+        if(nstime() < lat_bg) sleepUntilNs(lat_bg);
+        lat_bg = ustime();
+        pthread_mutex_unlock(&config.lats_mutex);
+        func(cmd_string);
+        pthread_mutex_lock(&config.lats_mutex);
+        ++ config.requests_finished;
+        config.lats.push_back(ustime() - lat_bg);
+    }
+    pthread_mutex_unlock(&config.lats_mutex);
+}
 
-static void* show_report(void *) {
+static void *show_report(void *) {
     static double pers[] = {0, 50, 80, 95, 99, 99.9, 100};
     static int pers_size = 7; //sizeof(pers) / sizeof(double);
     while(config.display_las_index < config.requests) {
@@ -133,37 +166,37 @@ static void* show_report(void *) {
             lat_buf.push_back(config.lats[i]);
             mean_lat += config.lats[i];
         }
-        mean_lat = requests_finished ? mean_lat / delta_sz : 0;
+        mean_lat = delta_sz ? mean_lat / delta_sz : 0;
         long double qps = delta_tm ? (long double) delta_sz / (delta_tm / 1000000.0) : 0;
         sort(lat_buf.begin(), lat_buf.end());
         printf("==============%s==============\n", config.type.c_str());
-        printf("%8s%8s", "QPS", "MEAN");
+        printf("%8s|%8s", "QPS", "MEAN");
         for(int i = 0; i < pers_size; ++ i) {
-            printf("%7.2f%%", pers[i]);
+            printf("|%7.2f%%", pers[i]);
         }
         printf(" (unit: us)\n");
-        printf("%8.2Lf%8.2Lf", qps, mean_lat);
+        printf("%8.2Lf|%8.2Lf", qps, mean_lat);
         for (int i = 0; i < pers_size; ++ i) {
             int pos = pers[i] / 100 * max(0ll, delta_sz - 1);
-            printf("%8lld", lat_buf[pos]);
+            printf("|%8lld", lat_buf[pos]);
         }
-	char file_name[50];
-	sprintf(file_name,"redis_cluster_latency_%s.csv",config.type.c_str());	
-	FILE *fp = fopen(file_name,"a");
-	if(fp==NULL){
-		return 0;
-	}
-	fprintf(fp,"%8.2LF,%8Lf",qps,mean_lat);
-	for(int i = 0; i < pers_size; ++ i){
-		int pos = pers[i] / 100 * max(0ll, delta_sz -1);
-		fprintf(fp,",%8lld",lat_buf[pos]);
-	}
-	fprintf(fp,"\n");
-	fclose(fp);
+        char file_name[50];
+        sprintf(file_name, "redis_cluster_latency_%s.csv", config.type.c_str());
+        FILE *fp = fopen(file_name, "a");
+        if(fp == NULL) {
+            return 0;
+        }
+        fprintf(fp, "%8.2LF,%8Lf", qps, mean_lat);
+        for(int i = 0; i < pers_size; ++ i) {
+            int pos = pers[i] / 100 * max(0ll, delta_sz - 1);
+            fprintf(fp, ",%8lld", lat_buf[pos]);
+        }
+        fprintf(fp, "\n");
+        fclose(fp);
 
-	printf("\n");
-	config.display_las_time = ustime();
-	config.display_las_index = requests_finished + 1;
+        printf("\n");
+        config.display_las_time = ustime();
+        config.display_las_index = requests_finished + 1;
     }
 }
 
@@ -208,37 +241,24 @@ void benchmark(const string &type) {
     config.type = type;
     config.requests_finished = 0;
     config.lats.clear();
-    bool (* func)(acl::redis_string & cmd) = NULL;
-    if(config.type == "SET") {
-        func = &test_set;
-    } else if(config.type == "GET") {
-        func = &test_get;
-    } else {
-        fprintf(stderr, "type error: no such type %s\n", config.type.c_str());
-        exit(-1);
-    }
-    vector<test_thread* > threads;
+    pthread_mutex_init(&config.lats_mutex, NULL);
+    config.clients_pd.clear();
+    config.clients_pd.resize(config.client_num);
     for(int i = 0; i < config.client_num; ++i) {
-        test_thread* thread = new test_thread(cluster, config.max_conn, func);
-        threads.push_back(thread);
-        thread->set_detachable(false);
+        pthread_create(&config.clients_pd[i], NULL, processRequests, &i);
     }
-
     pthread_create(&config.display_pd, NULL, show_report, NULL);
     config.display_las_time = config.start_tm = ustime();
     config.display_las_index = 0;
-    
-    for(int i = 0; i< config.client_num; ++i) {
-        threads[i]->start();
-    }
-    
-    for(auto& thread : threads) {
-        thread->wait();
-        delete thread;
+    //dist = ExpDist(config.qps * 1e-6, time(NULL), config.start_tm);
+    dist = ExpDist(config.qps * 1e-9, time(NULL), nstime());
+    for(int i = 0; i < config.client_num; ++i) {
+        pthread_join(config.clients_pd[i], NULL);
     }
     pthread_join(config.display_pd, NULL);
     config.total_tm = ustime() - config.start_tm;
 
+    pthread_mutex_destroy(&config.lats_mutex);
     show_total_report();
 }
 
@@ -264,6 +284,9 @@ bool parseOptions(int argc, const char **argv) {
         } else if(!strcmp(argv[i], "-n")) {
             if(lastarg) goto invalid;
             config.requests = atoi(argv[++ i]);
+        } else if(!strcmp(argv[i], "--qps")) {
+            if(lastarg) goto invalid;
+            config.qps = atoi(argv[++ i]);
         } else if(!strcmp(argv[i], "--interval")) {
             if(lastarg) goto invalid;
             config.interval = atoi(argv[++ i]);
@@ -277,14 +300,13 @@ invalid:
 
 usage:
     printf(
-        "Usage: redis-cluster-bench [-h <host>] [-p <port>] [-c <client>] [-n <requests>]  [-t <test-type>] [-a <auth>] [--interval <interval>]\n\n"
+        "Usage: redis-openloop-bench [-h <host>] [-p <port>] [-c <client>] [-n <requests>]  [-t <test-type>] [-a <auth>] [--qps <qps>] [--interval <interval>]\n\n"
         "Examples:\n\n"
-        "redis-cluster-bench -h 127.0.0.1 -p 7000 -n 10000000 -c 20 -t set,get --interval 1\n\n");
+        "redis-openloop-bench -h 127.0.0.1 -p 7000 -n 10000000 -c 20 -t set,get --qps 1000 --interval 1\n\n");
     return false;
 }
 
 int main(int argc, const char **argv) {
-    config.max_conn = 200;
     config.client_num = 1;
     config.ip_addr = "127.0.0.1";
     config.port = 6379;
@@ -293,13 +315,15 @@ int main(int argc, const char **argv) {
     config.task.push_back("SET");
     config.task.push_back("GET");
     config.interval = 1;
+    config.qps = 100;
     if(parseOptions(argc, argv) == false) exit(-1);
 
     // 添加一个 redis 服务结点，可以多次调用此函数添加多个服务结点，
     // 因为 acl redis 模块支持 redis 服务结点的自动发现及动态添加
     // 功能，所以添加一个服务结点即可
+    int max_conns = 200;
     string redis_url = config.ip_addr + ":" + to_string(config.port);
-    cluster.set(redis_url.c_str(), config.max_conn);
+    cluster.set(redis_url.c_str(), max_conns);
     for(auto &type : config.task) {
         transform(type.begin(), type.end(), type.begin(), ::toupper);
         benchmark(type);
