@@ -79,9 +79,9 @@ bool test_set(acl::redis_string &cmd) {
         const acl::redis_result *res = cmd.get_result();
         printf("set key: error: %s\r\n",
                 res ? res->get_error() : "unknown error");
-    //    return false;
+        return false;
     }
-    assert(ret == true);
+    //assert(ret == true);
     key.clear();
     val.clear();
     cmd.clear();
@@ -91,7 +91,14 @@ bool test_set(acl::redis_string &cmd) {
 bool test_get(acl::redis_string &cmd) {
     acl::string key = gen_key();
     acl::string val = gen_val();
-    assert(cmd.get(key, val) == true);
+    //assert(cmd.get(key, val) == true);
+    bool ret = cmd.get(key, val);
+    if (ret == false ) {
+        const acl::redis_result *res = cmd.get_result();
+        printf("get key: error: %s\r\n",
+                res ? res->get_error() : "unknown error");
+        return false;
+    }
     key.clear();
     val.clear();
     return true;
