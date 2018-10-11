@@ -1,0 +1,28 @@
+[ 0]    r3c                                     cycle
+[ 1]    rc0                                     ins
+[ 2]    raa24                                   L2_RQST.MISS
+[ 3]    rff24                                   L2_RQSTS.REFERN
+[ 4]    r412e                                   L3_miss
+[ 5]    r4f2e                                   L3_REFE
+[ 6]    r149                                    DTLB_MISS
+[ 7]    r1049                                   DTLB.MISS_STLB.HIT
+[ 8]    r185                                    ITLB_MISS
+[ 9]    r280                                    L1I.MISS
+[10]    r180                                    L1I.HIT
+[11]    r160                                    OFFCORE_REQUEST.OUTSTAND.DATA
+[12]    r1530160                                        OFFCORE_REQUEST.OUTSTAND.not.empty
+[13]    uncore/event=0x2c,umask=0x07/                                   UNC_READ
+[14]    uncore/event=0x2f,umask=0x07/                                   UNC_WRITE
+[15]    r214                                    MUL
+[16]    r1d70114                                        DIV
+[17]    r1c7                                    SSE_P_SI
+[18]    r2c7                                    SSE_S_SI
+[19]    r4c7                                    SSE_P_D
+[20]    r8c7                                    SSE_S_D
+[21]    r110                                    FP
+[22]    r10b                                    LOAD
+[23]    r20b                                    STORE
+[24]    rc4                                     BR_re
+[25]    rc5                                     BR_miss
+[26]    r40b1                                   PORT015
+
